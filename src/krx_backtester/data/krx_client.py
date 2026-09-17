@@ -18,6 +18,27 @@ SERVICES = {
     "kospi_dd_trd": "idx/kospi_dd_trd",  # KOSPI 시리즈 일별시세정보
 }
 
+# 응답 OutBlock_1 필드. 출처: 개발 명세서, M0 실측 대조 (docs/M0_RESULTS.md)
+DAILY_FIELDS = (
+    "BAS_DD", "ISU_CD", "ISU_NM", "MKT_NM", "SECT_TP_NM", "TDD_CLSPRC", "CMPPREVDD_PRC", "FLUC_RT",
+    "TDD_OPNPRC", "TDD_HGPRC", "TDD_LWPRC", "ACC_TRDVOL", "ACC_TRDVAL", "MKTCAP", "LIST_SHRS",
+)
+BASE_INFO_FIELDS = (
+    "ISU_CD", "ISU_SRT_CD", "ISU_NM", "ISU_ABBRV", "ISU_ENG_NM", "LIST_DD", "MKT_TP_NM", "SECUGRP_NM",
+    "SECT_TP_NM", "KIND_STKCERT_TP_NM", "PARVAL", "LIST_SHRS",
+)
+INDEX_FIELDS = (
+    "BAS_DD", "IDX_CLSS", "IDX_NM", "CLSPRC_IDX", "CMPPREVDD_IDX", "FLUC_RT", "OPNPRC_IDX", "HGPRC_IDX",
+    "LWPRC_IDX", "ACC_TRDVOL", "ACC_TRDVAL", "MKTCAP",
+)
+FIELDS = {
+    "stk_bydd_trd": DAILY_FIELDS,
+    "ksq_bydd_trd": DAILY_FIELDS,
+    "stk_isu_base_info": BASE_INFO_FIELDS,
+    "ksq_isu_base_info": BASE_INFO_FIELDS,
+    "kospi_dd_trd": INDEX_FIELDS,
+}
+
 KEYRING_SERVICE = "krx-backtester"
 KEYRING_USERNAME = "KRX_API_KEY"
 ENV_VAR = "KRX_API_KEY"

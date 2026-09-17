@@ -1,1 +1,14 @@
 # DB 경로, 조합 수 상한, 비용·체결 기본값, OOS 개봉 한도 (값은 해당 마일스톤에서 확정)
+
+[data]
+db_path = "data/krx.duckdb"
+raw_dir = "data/raw"
+
+[api]
+# 인증키 만료일 (YYYY-MM-DD). 이용기간 1년(약관 제5조③). 마이페이지 발급내역에서 확인해 기입
+api_key_expires_on = ""
+
+[collector]
+default_max_calls = 9000
+request_delay_seconds = 0.2
+max_consecutive_errors = 5
