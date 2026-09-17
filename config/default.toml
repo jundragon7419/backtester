@@ -6,7 +6,7 @@ raw_dir = "data/raw"
 
 [api]
 # 인증키 만료일 (YYYY-MM-DD). 이용기간 1년(약관 제5조③). 마이페이지 발급내역에서 확인해 기입
-api_key_expires_on = ""
+api_key_expires_on = "2027-09-16"
 
 [collector]
 default_max_calls = 9000
