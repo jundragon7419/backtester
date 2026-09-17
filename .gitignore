@@ -1,0 +1,11 @@
+.env
+.venv/
+/data/
+/docs/
+*.duckdb
+*.sqlite
+/results/
+__pycache__/
+CLAUDE.md
+*.egg-info/
+.pytest_cache/

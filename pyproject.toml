@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "krx-backtester"
+version = "0.0.1"
+description = "KRX Open API 일봉 기반 전략 탐색·검증 백테스터"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "requests",
+    "pandas",
+    "numpy",
+    "duckdb",
+    "keyring",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+gui = ["PySide6"]
+crosscheck = ["pykrx"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
