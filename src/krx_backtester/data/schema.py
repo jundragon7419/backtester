@@ -24,6 +24,12 @@ DDL = (
         code VARCHAR, isu_std_cd VARCHAR, name VARCHAR, market VARCHAR,
         first_seen_date DATE, last_seen_date DATE, delisted_date DATE,
         is_right_censored BOOLEAN, is_preferred BOOLEAN)""",
+    # 분석 계층. 정지 행(시가 0)은 시·고·저가를 NULL로 둔다 (P2-1, 불변 규칙 23)
+    """CREATE TABLE IF NOT EXISTS prices (
+        date DATE, code VARCHAR, market VARCHAR,
+        open BIGINT, high BIGINT, low BIGINT, close BIGINT,
+        volume BIGINT, value HUGEINT, listed_shares HUGEINT, market_cap HUGEINT,
+        is_halted BOOLEAN, has_trade BOOLEAN, is_managed BOOLEAN, valid_days_20 INTEGER)""",
 )
 
 

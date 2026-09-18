@@ -284,12 +284,16 @@ def rebuild_instruments(con: duckdb.DuckDBPyConnection) -> None:
                    arg_max(ISU_NM, date) AS name, arg_max(market, date) AS market
             FROM raw_daily GROUP BY code
         ),
-        std AS (SELECT code, arg_max(ISU_CD, date) AS isu_std_cd FROM raw_isu_base GROUP BY code),
+        std AS (
+            SELECT code, arg_max(ISU_CD, date) AS isu_std_cd,
+                   arg_max(KIND_STKCERT_TP_NM, date) AS stock_kind
+            FROM raw_isu_base GROUP BY code
+        ),
         bounds AS (SELECT max(date) AS last_loaded FROM raw_daily)
         SELECT s.code, std.isu_std_cd, s.name, s.market, s.first_seen, s.last_seen,
                CASE WHEN s.last_seen < b.last_loaded THEN s.last_seen END,
                s.last_seen = b.last_loaded,
-               NULL
+               CASE WHEN std.stock_kind IS NULL THEN NULL ELSE std.stock_kind <> '보통주' END
         FROM seen s LEFT JOIN std USING (code) CROSS JOIN bounds b
         """
     )

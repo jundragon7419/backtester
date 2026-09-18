@@ -1,1 +1,79 @@
 """원시 응답 정규화와 당일 시가총액 계산 (P2-1)."""
+
+from dataclasses import dataclass
+
+import duckdb
+
+# 정지 행 판정은 시가 0 단독. 거래량 0인데 시가가 있는 행은 없고, 시가가 0인데
+# 시간외 체결로 거래량만 있는 행은 있다 (M0/M1 실측, docs/M1_RESULTS.md).
+HALTED_CONDITION = "TDD_OPNPRC = '0'"
+NUMERIC_COLUMNS = (
+    "TDD_CLSPRC", "TDD_OPNPRC", "TDD_HGPRC", "TDD_LWPRC", "ACC_TRDVOL", "ACC_TRDVAL", "LIST_SHRS", "MKTCAP",
+)
+# 코스닥 소속부 표기는 2011-05-02부터 채워진다. 그 이전과 유가증권은 판별 불가(NULL)
+MANAGED_FROM = "2011-05-02"
+MANAGED_LABEL = "관리종목(소속부없음)"
+
+SELECT_SQL = f"""
+SELECT date, code, market,
+       CASE WHEN {HALTED_CONDITION} THEN NULL ELSE CAST(TDD_OPNPRC AS BIGINT) END AS open,
+       CASE WHEN {HALTED_CONDITION} THEN NULL ELSE CAST(TDD_HGPRC AS BIGINT) END AS high,
+       CASE WHEN {HALTED_CONDITION} THEN NULL ELSE CAST(TDD_LWPRC AS BIGINT) END AS low,
+       CAST(TDD_CLSPRC AS BIGINT) AS close,
+       CAST(ACC_TRDVOL AS BIGINT) AS volume,
+       CAST(ACC_TRDVAL AS HUGEINT) AS value,
+       CAST(LIST_SHRS AS HUGEINT) AS listed_shares,
+       CAST(TDD_CLSPRC AS HUGEINT) * CAST(LIST_SHRS AS HUGEINT) AS market_cap,
+       {HALTED_CONDITION} AS is_halted,
+       CAST(ACC_TRDVOL AS BIGINT) > 0 AS has_trade,
+       CASE WHEN market = 'KOSDAQ' AND date >= DATE '{MANAGED_FROM}'
+            THEN SECT_TP_NM = '{MANAGED_LABEL}' END AS is_managed,
+       sum(CASE WHEN {HALTED_CONDITION} THEN 0 ELSE 1 END)
+           OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS valid_days_20
+FROM raw_daily
+"""
+
+
+class NonNumericValue(Exception):
+    """원시 응답에 숫자가 아닌 값이 있어 정규화를 중단한다."""
+
+
+@dataclass
+class NormalizeResult:
+    rows: int
+    halted: int
+    no_trade_with_close_move: int
+    managed_known: int
+
+
+def check_numeric(con: duckdb.DuckDBPyConnection) -> None:
+    """캐스팅 실패 행이 있으면 예시와 함께 중단한다. 값을 조용히 NULL로 만들지 않는다."""
+    condition = " OR ".join(f"TRY_CAST({col} AS HUGEINT) IS NULL" for col in NUMERIC_COLUMNS)
+    bad = con.execute(f"SELECT count(*) FROM raw_daily WHERE {condition}").fetchone()[0]
+    if bad:
+        sample = con.execute(
+            f"SELECT date, code, {', '.join(NUMERIC_COLUMNS)} FROM raw_daily WHERE {condition} LIMIT 3"
+        ).fetchall()
+        raise NonNumericValue(f"숫자가 아닌 값 {bad}행. 예시: {sample}")
+
+
+def build_prices(con: duckdb.DuckDBPyConnection, memory_limit: str = "2GB", threads: int = 4) -> NormalizeResult:
+    """raw_daily → prices 전량 재생성 (멱등)."""
+    check_numeric(con)
+    con.execute(f"PRAGMA memory_limit='{memory_limit}'")
+    con.execute(f"PRAGMA threads={threads}")
+    con.execute("DELETE FROM prices")
+    con.execute(f"INSERT INTO prices {SELECT_SQL}")
+    con.execute("CHECKPOINT")
+    rows, halted, managed = con.execute(
+        "SELECT count(*), count(*) FILTER (is_halted), count(is_managed) FROM prices"
+    ).fetchone()
+    # 정지·무거래인데 종가가 움직인 행(기세·시간외 체결). 품질 리포트 추적용
+    moved = con.execute(
+        """
+        SELECT count(*) FROM (
+            SELECT close, is_halted, lag(close) OVER (PARTITION BY code ORDER BY date) AS prev_close FROM prices
+        ) WHERE is_halted AND prev_close IS NOT NULL AND close <> prev_close
+        """
+    ).fetchone()[0]
+    return NormalizeResult(rows, halted, moved, managed)

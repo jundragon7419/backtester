@@ -5,7 +5,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from krx_backtester.config import key_expiry_warning, load_config
-from krx_backtester.data import collector, krx_client
+from krx_backtester.data import collector, krx_client, normalize
 from krx_backtester.data.schema import connect
 
 
@@ -23,6 +23,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     col.add_argument("--max-calls", type=int, default=None, help="이번 실행의 호출 예산(실패 호출 포함)")
 
     sub.add_parser("status", help="서비스별 적재 범위, 상태별 건수, 오늘 사용한 호출 수")
+    sub.add_parser("normalize", help="raw_daily → prices 정규화 (전량 재생성, API 호출 없음)")
     return parser.parse_args(argv)
 
 
@@ -65,6 +66,13 @@ def main(argv: list[str] | None = None) -> int:
         if result.stop_reason:
             print(f"중단: {result.stop_reason}")
         return 1 if result.stop_reason else 0
+
+    if args.command == "normalize":
+        result = normalize.build_prices(con)
+        print(f"prices {result.rows:,}행 생성")
+        print(f"  정지·무거래(시가 0) {result.halted:,}행, 그중 종가가 움직인 행 {result.no_trade_with_close_move:,}")
+        print(f"  관리종목 판별 가능(코스닥 {normalize.MANAGED_FROM} 이후) {result.managed_known:,}행")
+        return 0
 
     info = collector.status(con, now.date())
     print("서비스별 적재 범위 (ok):")

@@ -7,7 +7,7 @@ name = "krx-backtester"
 version = "0.0.1"
 description = "KRX Open API 일봉 기반 전략 탐색·검증 백테스터"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "requests",
     "pandas",
@@ -19,7 +19,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 gui = ["PySide6"]
-crosscheck = ["pykrx"]
+# pykrx는 pandas<3을 요구하므로 본 환경에 넣지 않는다 (청사진 7장).
+# 교차검증은 별도 가상환경에서 scripts/xcheck_pykrx.py로 표본만 수집한다.
 
 [tool.setuptools.packages.find]
 where = ["src"]
