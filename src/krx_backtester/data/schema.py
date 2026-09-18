@@ -24,6 +24,12 @@ DDL = (
         code VARCHAR, isu_std_cd VARCHAR, name VARCHAR, market VARCHAR,
         first_seen_date DATE, last_seen_date DATE, delisted_date DATE,
         is_right_censored BOOLEAN, is_preferred BOOLEAN)""",
+    # 이벤트 후보. base_price·prev_close·prev_date는 판정 검산용, 플래그는 M2-c 분류 입력 (P2-2)
+    """CREATE TABLE IF NOT EXISTS adj_factors (
+        date DATE, code VARCHAR, factor DOUBLE,
+        base_price BIGINT, prev_close BIGINT, prev_date DATE,
+        within_one_tick BOOLEAN, prev_halted BOOLEAN, row_halted BOOLEAN, prev_gap BOOLEAN,
+        event_type VARCHAR, rights_value_per_share BIGINT, known_date DATE, post_verification VARCHAR)""",
     # 분석 계층. 정지 행(시가 0)은 시·고·저가를 NULL로 둔다 (P2-1, 불변 규칙 23)
     """CREATE TABLE IF NOT EXISTS prices (
         date DATE, code VARCHAR, market VARCHAR,

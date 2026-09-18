@@ -64,7 +64,12 @@ def build_prices(con: duckdb.DuckDBPyConnection, memory_limit: str = "2GB", thre
     con.execute(f"PRAGMA threads={threads}")
     con.execute("DELETE FROM prices")
     con.execute(f"INSERT INTO prices {SELECT_SQL}")
+    # prices가 바뀌면 그 위에서 만든 이벤트 후보는 무효다 (adjust로 다시 만든다)
+    dropped = con.execute("SELECT count(*) FROM adj_factors").fetchone()[0]
+    con.execute("DELETE FROM adj_factors")
     con.execute("CHECKPOINT")
+    if dropped:
+        print(f"경고: prices를 다시 만들어 adj_factors {dropped:,}행을 비웠습니다. adjust를 다시 실행하세요.")
     rows, halted, managed = con.execute(
         "SELECT count(*), count(*) FILTER (is_halted), count(is_managed) FROM prices"
     ).fetchone()
