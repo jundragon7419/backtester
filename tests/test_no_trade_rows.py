@@ -1,4 +1,4 @@
-"""정지·무거래 행 처리와 정규화 (P2-1, 불변 규칙 23)."""
+"""무거래 행 처리와 정규화 (P2-1, 불변 규칙 23)."""
 
 from datetime import date, timedelta
 
@@ -30,39 +30,39 @@ def halted(code: str, close: str = "1000", volume: str = "0") -> dict:
 
 
 def fetch(con, code: str, d: date) -> dict:
-    cols = "open, high, low, close, volume, is_halted, has_trade, is_managed, valid_days_20, market_cap"
+    cols = "open, high, low, close, volume, no_trade, has_trade, halt_run, is_managed, valid_days_20, market_cap"
     row = con.execute(f"SELECT {cols} FROM prices WHERE code = ? AND date = ?", [code, d]).fetchone()
     return dict(zip(cols.replace(" ", "").split(","), row))
 
 
-def test_halted_row_has_null_prices_and_keeps_close(con):
+def test_no_trade_row_has_null_prices_and_keeps_close(con):
     insert(con, date(2020, 1, 2), "KOSPI", traded("000001"))
     insert(con, date(2020, 1, 3), "KOSPI", halted("000001"))
     build_prices(con)
 
     row = fetch(con, "000001", date(2020, 1, 3))
-    assert row["is_halted"] is True and row["has_trade"] is False
+    assert row["no_trade"] is True and row["has_trade"] is False
     assert row["open"] is None and row["high"] is None and row["low"] is None
     assert row["close"] == 1000
     assert row["market_cap"] == 100000
 
 
-def test_zero_open_with_volume_is_halted(con):
+def test_zero_open_with_volume_no_trade(con):
     """시가·고가·저가 0인데 거래량만 있는 행(시간외 체결). 실측 125건 형태."""
     insert(con, date(2020, 1, 2), "KOSPI", halted("000002", volume="2"))
     build_prices(con)
 
     row = fetch(con, "000002", date(2020, 1, 2))
-    assert row["is_halted"] is True and row["has_trade"] is True
+    assert row["no_trade"] is True and row["has_trade"] is True
     assert row["open"] is None
 
 
-def test_open_present_is_not_halted_even_without_volume(con):
+def test_open_present_is_not_no_trade_even_without_volume(con):
     insert(con, date(2020, 1, 2), "KOSPI", traded("000003", volume="0"))
     build_prices(con)
 
     row = fetch(con, "000003", date(2020, 1, 2))
-    assert row["is_halted"] is False and row["has_trade"] is False
+    assert row["no_trade"] is False and row["has_trade"] is False
     assert row["open"] == 1010
 
 
@@ -82,7 +82,7 @@ def test_is_managed_source_and_start_date(con, market, day, sect, expected):
     assert fetch(con, "000004", day)["is_managed"] is expected
 
 
-def test_valid_days_20_counts_only_non_halted_in_last_20_rows(con):
+def test_valid_days_20_counts_only_traded_rows(con):
     start = date(2020, 1, 2)
     for i in range(25):
         day = start + timedelta(days=i)
@@ -92,8 +92,31 @@ def test_valid_days_20_counts_only_non_halted_in_last_20_rows(con):
 
     # 마지막 행 기준 창은 5~24번째 행이고 정지 3개(5·6·7)가 그 안에 들어감
     assert fetch(con, "000005", start + timedelta(days=24))["valid_days_20"] == 17
-    # 8번째 행 기준으로는 9개 행 중 정지 3개
+    # 8번째 행 기준으로는 9개 행 중 무거래 3개
     assert fetch(con, "000005", start + timedelta(days=8))["valid_days_20"] == 6
+
+
+def test_valid_days_20_counts_after_hours_trade(con):
+    """시가 0이지만 시간외 체결이 있는 행은 has_trade라 유효 거래일에 들어간다."""
+    start = date(2020, 1, 2)
+    insert(con, start, "KOSPI", traded("000011"))
+    insert(con, start + timedelta(days=1), "KOSPI", halted("000011", volume="2"))
+    build_prices(con)
+
+    row = fetch(con, "000011", start + timedelta(days=1))
+    assert row["no_trade"] is True and row["has_trade"] is True
+    assert row["valid_days_20"] == 2
+
+
+def test_halt_run_counts_preceding_no_trade_days(con):
+    start = date(2020, 1, 2)
+    pattern = [False, True, True, True, False, False, True, False]
+    for i, is_halt in enumerate(pattern):
+        insert(con, start + timedelta(days=i), "KOSPI", halted("000012") if is_halt else traded("000012"))
+    build_prices(con)
+
+    runs = [fetch(con, "000012", start + timedelta(days=i))["halt_run"] for i in range(len(pattern))]
+    assert runs == [0, 0, 1, 2, 3, 0, 0, 1]
 
 
 def test_rebuild_is_idempotent(con):

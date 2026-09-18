@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 from conftest import daily_row
-from test_halted_rows import insert
+from test_no_trade_rows import insert
 
 from krx_backtester.data.adjust import PricesOutOfDate, build_adj_factors
 from krx_backtester.data.normalize import build_prices
@@ -22,7 +22,7 @@ def row(code: str, close: int, diff: int, *, halted: bool = False, shares: str =
 
 
 def factors(con) -> dict:
-    cols = "date, factor, base_price, prev_close, prev_date, within_one_tick, prev_halted, row_halted, prev_gap, known_date"
+    cols = "date, factor, base_price, prev_close, prev_date, within_one_tick, prev_no_trade, row_no_trade, prev_gap, known_date"
     rows = con.execute(f"SELECT {cols} FROM adj_factors ORDER BY date").fetchall()
     keys = [c.strip() for c in cols.split(",")]
     return {r[0]: dict(zip(keys, r)) for r in rows}
@@ -67,7 +67,7 @@ def test_split_after_halt_gives_exact_factor(con):
     event = factors(con)[d + timedelta(days=2)]
     assert event["factor"] == pytest.approx(0.2)
     assert event["base_price"] == 1000 and event["prev_close"] == 5000
-    assert event["prev_halted"] is True and event["row_halted"] is False
+    assert event["prev_no_trade"] is True and event["row_no_trade"] is False
     assert event["known_date"] == event["date"]
 
 

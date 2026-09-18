@@ -28,24 +28,57 @@ DDL = (
     """CREATE TABLE IF NOT EXISTS adj_factors (
         date DATE, code VARCHAR, factor DOUBLE,
         base_price BIGINT, prev_close BIGINT, prev_date DATE,
-        within_one_tick BOOLEAN, prev_halted BOOLEAN, row_halted BOOLEAN, prev_gap BOOLEAN,
+        within_one_tick BOOLEAN, prev_no_trade BOOLEAN, row_no_trade BOOLEAN, prev_gap BOOLEAN,
         event_type VARCHAR, rights_value_per_share BIGINT, known_date DATE, post_verification VARCHAR)""",
-    # 분석 계층. 정지 행(시가 0)은 시·고·저가를 NULL로 둔다 (P2-1, 불변 규칙 23)
+    # 분석 계층. 무거래 행(시가 0)은 시·고·저가를 NULL로 둔다 (P2-1, 불변 규칙 23)
     """CREATE TABLE IF NOT EXISTS prices (
         date DATE, code VARCHAR, market VARCHAR,
         open BIGINT, high BIGINT, low BIGINT, close BIGINT,
         volume BIGINT, value HUGEINT, listed_shares HUGEINT, market_cap HUGEINT,
-        is_halted BOOLEAN, has_trade BOOLEAN, is_managed BOOLEAN, valid_days_20 INTEGER)""",
+        no_trade BOOLEAN, has_trade BOOLEAN, halt_run INTEGER, is_managed BOOLEAN, valid_days_20 INTEGER)""",
 )
 
 
-def init_schema(con: duckdb.DuckDBPyConnection) -> None:
+# 원시 계층에서 언제든 다시 만들 수 있는 파생 테이블. 컬럼 구성이 바뀌면 비우고 다시 만든다.
+DERIVED_COLUMNS = {
+    "adj_factors": (
+        "date", "code", "factor", "base_price", "prev_close", "prev_date", "within_one_tick",
+        "prev_no_trade", "row_no_trade", "prev_gap", "event_type", "rights_value_per_share",
+        "known_date", "post_verification",
+    ),
+    "prices": (
+        "date", "code", "market", "open", "high", "low", "close", "volume", "value", "listed_shares",
+        "market_cap", "no_trade", "has_trade", "halt_run", "is_managed", "valid_days_20",
+    ),
+}
+
+
+def _drop_outdated_derived_tables(con: duckdb.DuckDBPyConnection) -> list[str]:
+    dropped = []
+    for table, expected in DERIVED_COLUMNS.items():
+        current = tuple(
+            name for (name,) in con.execute(
+                "SELECT column_name FROM duckdb_columns() WHERE table_name = ? ORDER BY column_index", [table]
+            ).fetchall()
+        )
+        if current and current != expected:
+            con.execute(f"DROP TABLE {table}")
+            dropped.append(table)
+    return dropped
+
+
+def init_schema(con: duckdb.DuckDBPyConnection) -> list[str]:
+    """스키마를 만들고, 컬럼이 바뀐 파생 테이블 이름 목록을 돌려준다."""
+    dropped = _drop_outdated_derived_tables(con)
     for stmt in DDL:
         con.execute(stmt)
+    return dropped
 
 
 def connect(db_path: Path) -> duckdb.DuckDBPyConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
-    init_schema(con)
+    dropped = init_schema(con)
+    if dropped:
+        print(f"안내: 컬럼이 바뀌어 파생 테이블을 비웠습니다 ({', '.join(dropped)}). normalize·adjust를 다시 실행하세요.")
     return con

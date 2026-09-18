@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "normalize":
         result = normalize.build_prices(con)
         print(f"prices {result.rows:,}행 생성")
-        print(f"  정지·무거래(시가 0) {result.halted:,}행, 그중 종가가 움직인 행 {result.no_trade_with_close_move:,}")
+        print(f"  무거래(시가 0) {result.no_trade:,}행, 그중 종가가 움직인 행 {result.no_trade_with_close_move:,}")
         print(f"  관리종목 판별 가능(코스닥 {normalize.MANAGED_FROM} 이후) {result.managed_known:,}행")
         return 0
 
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  이벤트로 다룰 행 {result.events:,}")
         print(f"  호가 단위 1호가 이내로 제외 {result.within_one_tick:,} (임시 호가표 기준)")
         print(f"  시계열 공백으로 제외 {result.prev_gap:,}")
-        print(f"  직전 행이 정지 {result.prev_halted:,}, 당일이 정지 {result.row_halted:,}")
+        print(f"  직전 행이 무거래 {result.prev_no_trade:,}, 당일이 무거래 {result.row_no_trade:,}")
         return 0
 
     info = collector.status(con, now.date())

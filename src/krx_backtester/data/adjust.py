@@ -14,11 +14,11 @@ WITH cal AS (
     SELECT date, row_number() OVER (ORDER BY date) AS idx FROM (SELECT DISTINCT date FROM prices)
 ),
 seq AS (
-    SELECT p.date, p.code, p.market, p.is_halted, c.idx,
+    SELECT p.date, p.code, p.market, p.no_trade, c.idx,
            p.close - CAST(r.CMPPREVDD_PRC AS BIGINT) AS base_price,
            lag(p.close) OVER w AS prev_close,
            lag(p.date) OVER w AS prev_date,
-           lag(p.is_halted) OVER w AS prev_halted,
+           lag(p.no_trade) OVER w AS prev_no_trade,
            lag(c.idx) OVER w AS prev_idx
     FROM prices p
     JOIN raw_daily r ON r.date = p.date AND r.code = p.code
@@ -28,7 +28,7 @@ seq AS (
 SELECT date, code, base_price * 1.0 / prev_close AS factor,
        base_price, prev_close, prev_date,
        abs(base_price - prev_close) <= ({tick}) AS within_one_tick,
-       prev_halted, is_halted AS row_halted, idx - prev_idx > 1 AS prev_gap,
+       prev_no_trade, no_trade AS row_no_trade, idx - prev_idx > 1 AS prev_gap,
        NULL AS event_type, NULL AS rights_value_per_share, date AS known_date, NULL AS post_verification
 FROM seq
 WHERE prev_close IS NOT NULL AND prev_close > 0 AND base_price <> prev_close
@@ -45,8 +45,8 @@ class AdjustResult:
     events: int
     within_one_tick: int
     prev_gap: int
-    row_halted: int
-    prev_halted: int
+    row_no_trade: int
+    prev_no_trade: int
 
 
 def build_adj_factors(con: duckdb.DuckDBPyConnection, memory_limit: str = "2GB", threads: int = 4) -> AdjustResult:
@@ -63,14 +63,14 @@ def build_adj_factors(con: duckdb.DuckDBPyConnection, memory_limit: str = "2GB",
     con.execute(f"INSERT INTO adj_factors {CANDIDATE_SQL}")
     con.execute("CHECKPOINT")
 
-    candidates, within_tick, gap, row_halted, prev_halted = con.execute(
+    candidates, within_tick, gap, row_no_trade, prev_no_trade = con.execute(
         """
         SELECT count(*), count(*) FILTER (within_one_tick), count(*) FILTER (prev_gap),
-               count(*) FILTER (row_halted), count(*) FILTER (prev_halted)
+               count(*) FILTER (row_no_trade), count(*) FILTER (prev_no_trade)
         FROM adj_factors
         """
     ).fetchone()
     events = con.execute(
         "SELECT count(*) FROM adj_factors WHERE NOT within_one_tick AND NOT prev_gap"
     ).fetchone()[0]
-    return AdjustResult(candidates, events, within_tick, gap, row_halted, prev_halted)
+    return AdjustResult(candidates, events, within_tick, gap, row_no_trade, prev_no_trade)

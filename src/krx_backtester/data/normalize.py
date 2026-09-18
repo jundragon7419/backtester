@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 import duckdb
 
-# 정지 행 판정은 시가 0 단독. 거래량 0인데 시가가 있는 행은 없고, 시가가 0인데
-# 시간외 체결로 거래량만 있는 행은 있다 (M0/M1 실측, docs/M1_RESULTS.md).
-HALTED_CONDITION = "TDD_OPNPRC = '0'"
+# 무거래 행 판정은 시가 0 단독. 거래량 0인데 시가가 있는 행은 없고, 시가가 0인데
+# 시간외 체결로 거래량만 있는 행은 있다 (M1 실측 125건, docs/M1_RESULTS.md).
+NO_TRADE_CONDITION = "TDD_OPNPRC = '0'"
 NUMERIC_COLUMNS = (
     "TDD_CLSPRC", "TDD_OPNPRC", "TDD_HGPRC", "TDD_LWPRC", "ACC_TRDVOL", "ACC_TRDVAL", "LIST_SHRS", "MKTCAP",
 )
@@ -15,22 +15,40 @@ MANAGED_FROM = "2011-05-02"
 MANAGED_LABEL = "관리종목(소속부없음)"
 
 SELECT_SQL = f"""
-SELECT date, code, market,
-       CASE WHEN {HALTED_CONDITION} THEN NULL ELSE CAST(TDD_OPNPRC AS BIGINT) END AS open,
-       CASE WHEN {HALTED_CONDITION} THEN NULL ELSE CAST(TDD_HGPRC AS BIGINT) END AS high,
-       CASE WHEN {HALTED_CONDITION} THEN NULL ELSE CAST(TDD_LWPRC AS BIGINT) END AS low,
-       CAST(TDD_CLSPRC AS BIGINT) AS close,
-       CAST(ACC_TRDVOL AS BIGINT) AS volume,
-       CAST(ACC_TRDVAL AS HUGEINT) AS value,
-       CAST(LIST_SHRS AS HUGEINT) AS listed_shares,
-       CAST(TDD_CLSPRC AS HUGEINT) * CAST(LIST_SHRS AS HUGEINT) AS market_cap,
-       {HALTED_CONDITION} AS is_halted,
-       CAST(ACC_TRDVOL AS BIGINT) > 0 AS has_trade,
-       CASE WHEN market = 'KOSDAQ' AND date >= DATE '{MANAGED_FROM}'
-            THEN SECT_TP_NM = '{MANAGED_LABEL}' END AS is_managed,
-       sum(CASE WHEN {HALTED_CONDITION} THEN 0 ELSE 1 END)
-           OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS valid_days_20
-FROM raw_daily
+WITH base AS (
+    SELECT date, code, market,
+           CASE WHEN {NO_TRADE_CONDITION} THEN NULL ELSE CAST(TDD_OPNPRC AS BIGINT) END AS open,
+           CASE WHEN {NO_TRADE_CONDITION} THEN NULL ELSE CAST(TDD_HGPRC AS BIGINT) END AS high,
+           CASE WHEN {NO_TRADE_CONDITION} THEN NULL ELSE CAST(TDD_LWPRC AS BIGINT) END AS low,
+           CAST(TDD_CLSPRC AS BIGINT) AS close,
+           CAST(ACC_TRDVOL AS BIGINT) AS volume,
+           CAST(ACC_TRDVAL AS HUGEINT) AS value,
+           CAST(LIST_SHRS AS HUGEINT) AS listed_shares,
+           CAST(TDD_CLSPRC AS HUGEINT) * CAST(LIST_SHRS AS HUGEINT) AS market_cap,
+           {NO_TRADE_CONDITION} AS no_trade,
+           CAST(ACC_TRDVOL AS BIGINT) > 0 AS has_trade,
+           CASE WHEN market = 'KOSDAQ' AND date >= DATE '{MANAGED_FROM}'
+                THEN SECT_TP_NM = '{MANAGED_LABEL}' END AS is_managed
+    FROM raw_daily
+),
+islands AS (
+    SELECT *, row_number() OVER (PARTITION BY code ORDER BY date)
+              - row_number() OVER (PARTITION BY code, no_trade ORDER BY date) AS island
+    FROM base
+),
+runs AS (
+    SELECT *, CASE WHEN no_trade
+                   THEN count(*) OVER (PARTITION BY code, no_trade, island ORDER BY date ROWS UNBOUNDED PRECEDING)
+                   ELSE 0 END AS run_len
+    FROM islands
+)
+SELECT date, code, market, open, high, low, close, volume, value, listed_shares, market_cap,
+       no_trade, has_trade,
+       coalesce(lag(run_len) OVER w, 0) AS halt_run,
+       is_managed,
+       sum(CASE WHEN has_trade THEN 1 ELSE 0 END) OVER (PARTITION BY code ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS valid_days_20
+FROM runs
+WINDOW w AS (PARTITION BY code ORDER BY date)
 """
 
 
@@ -41,7 +59,7 @@ class NonNumericValue(Exception):
 @dataclass
 class NormalizeResult:
     rows: int
-    halted: int
+    no_trade: int
     no_trade_with_close_move: int
     managed_known: int
 
@@ -70,15 +88,15 @@ def build_prices(con: duckdb.DuckDBPyConnection, memory_limit: str = "2GB", thre
     con.execute("CHECKPOINT")
     if dropped:
         print(f"경고: prices를 다시 만들어 adj_factors {dropped:,}행을 비웠습니다. adjust를 다시 실행하세요.")
-    rows, halted, managed = con.execute(
-        "SELECT count(*), count(*) FILTER (is_halted), count(is_managed) FROM prices"
+    rows, no_trade, managed = con.execute(
+        "SELECT count(*), count(*) FILTER (no_trade), count(is_managed) FROM prices"
     ).fetchone()
-    # 정지·무거래인데 종가가 움직인 행(기세·시간외 체결). 품질 리포트 추적용
+    # 무거래인데 종가가 움직인 행(기세·시간외 체결). 품질 리포트 추적용
     moved = con.execute(
         """
         SELECT count(*) FROM (
-            SELECT close, is_halted, lag(close) OVER (PARTITION BY code ORDER BY date) AS prev_close FROM prices
-        ) WHERE is_halted AND prev_close IS NOT NULL AND close <> prev_close
+            SELECT close, no_trade, lag(close) OVER (PARTITION BY code ORDER BY date) AS prev_close FROM prices
+        ) WHERE no_trade AND prev_close IS NOT NULL AND close <> prev_close
         """
     ).fetchone()[0]
-    return NormalizeResult(rows, halted, moved, managed)
+    return NormalizeResult(rows, no_trade, moved, managed)
