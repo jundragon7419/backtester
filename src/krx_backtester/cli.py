@@ -78,10 +78,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "adjust":
         result = adjust.build_adj_factors(con)
         print(f"이벤트 후보 {result.candidates:,}행 (계수 ≠ 1)")
-        print(f"  이벤트로 다룰 행 {result.events:,}")
         print(f"  호가 단위 1호가 이내로 제외 {result.within_one_tick:,} (임시 호가표 기준)")
         print(f"  시계열 공백으로 제외 {result.prev_gap:,}")
-        print(f"  직전 행이 무거래 {result.prev_no_trade:,}, 당일이 무거래 {result.row_no_trade:,}")
+        print(f"귀속 후 이벤트 {result.events:,}행 (성분 2개 이상 {result.multi_component:,})")
+        for event_type in adjust.EVENT_TYPES:
+            print(f"  {event_type}: {result.by_type.get(event_type, 0):,}")
         return 0
 
     info = collector.status(con, now.date())

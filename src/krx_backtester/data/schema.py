@@ -28,7 +28,8 @@ DDL = (
     """CREATE TABLE IF NOT EXISTS adj_factors (
         date DATE, code VARCHAR, factor DOUBLE,
         base_price BIGINT, prev_close BIGINT, prev_date DATE,
-        within_one_tick BOOLEAN, prev_no_trade BOOLEAN, row_no_trade BOOLEAN, prev_gap BOOLEAN,
+        component_count INTEGER, first_component_date DATE,
+        shares_prev HUGEINT, shares_now HUGEINT, halt_run INTEGER,
         event_type VARCHAR, rights_value_per_share BIGINT, known_date DATE, post_verification VARCHAR)""",
     # 분석 계층. 무거래 행(시가 0)은 시·고·저가를 NULL로 둔다 (P2-1, 불변 규칙 23)
     """CREATE TABLE IF NOT EXISTS prices (
@@ -42,9 +43,9 @@ DDL = (
 # 원시 계층에서 언제든 다시 만들 수 있는 파생 테이블. 컬럼 구성이 바뀌면 비우고 다시 만든다.
 DERIVED_COLUMNS = {
     "adj_factors": (
-        "date", "code", "factor", "base_price", "prev_close", "prev_date", "within_one_tick",
-        "prev_no_trade", "row_no_trade", "prev_gap", "event_type", "rights_value_per_share",
-        "known_date", "post_verification",
+        "date", "code", "factor", "base_price", "prev_close", "prev_date",
+        "component_count", "first_component_date", "shares_prev", "shares_now", "halt_run",
+        "event_type", "rights_value_per_share", "known_date", "post_verification",
     ),
     "prices": (
         "date", "code", "market", "open", "high", "low", "close", "volume", "value", "listed_shares",
