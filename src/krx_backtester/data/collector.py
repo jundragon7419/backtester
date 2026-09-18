@@ -85,6 +85,9 @@ class Collector:
         self.consecutive_errors = 0
         self.done: dict[tuple[str, date], str] = {}
         self.not_yet_logged: set[tuple[str, date]] = set()
+        # 종목별 최초 등장일과 (최초 등장일, 시장) 집합. 날짜마다 전체 스캔하지 않으려고 실행 시작 때 한 번만 집계
+        self.first_seen: dict[str, date] = {}
+        self.first_days: set[tuple[date, str]] = set()
 
     def run(self, start: date, end: date) -> CollectResult:
         started = self.now()
@@ -101,6 +104,13 @@ class Collector:
                 "SELECT DISTINCT service, bas_dd FROM collection_log WHERE status = 'not_yet_available'"
             ).fetchall()
         }
+        self.first_seen = {}
+        self.first_days = set()
+        for code, first_date, market in self.con.execute(
+            "SELECT code, min(date), arg_min(market, date) FROM raw_daily GROUP BY code"
+        ).fetchall():
+            self.first_seen[code] = first_date
+            self.first_days.add((first_date, market))
         processed = not_yet = 0
         stop_reason = None
         try:
@@ -184,13 +194,7 @@ class Collector:
 
     def _has_new_codes(self, d: date, market: str) -> bool:
         """해당 시장의 d일 종목 중 적재된 이전 날짜에 한 번도 나오지 않은 단축코드가 있는지."""
-        return bool(
-            self.con.execute(
-                "SELECT 1 FROM raw_daily t WHERE t.date = ? AND t.market = ? "
-                "AND NOT EXISTS (SELECT 1 FROM raw_daily p WHERE p.code = t.code AND p.date < ?) LIMIT 1",
-                [d, market, d],
-            ).fetchone()
-        )
+        return (d, market) in self.first_days
 
     # --- 호출과 기록 ---
 
@@ -254,6 +258,11 @@ class Collector:
         market = DAILY_SERVICES[service]
         self.con.execute("DELETE FROM raw_daily WHERE date = ? AND market = ?", [d, market])
         self._insert("raw_daily", "?::DATE, ?, ISU_CD", [d, market], DAILY_FIELDS, rows)
+        for row in rows:
+            code = row["ISU_CD"]
+            if code not in self.first_seen or d < self.first_seen[code]:
+                self.first_seen[code] = d
+                self.first_days.add((d, market))
 
     def _store_index(self, d: date, rows: list[dict]) -> None:
         self.con.execute("DELETE FROM raw_index WHERE date = ?", [d])
@@ -318,8 +327,9 @@ def estimate(con: duckdb.DuckDBPyConnection, start: date, end: date, now: dateti
     # 적재된 날짜: 신규 코드 등장 여부를 알 수 있으므로 정확히 셈
     known = 0
     for d, market in con.execute(
-        "SELECT DISTINCT t.date, t.market FROM raw_daily t WHERE t.date BETWEEN ? AND ? "
-        "AND NOT EXISTS (SELECT 1 FROM raw_daily p WHERE p.code = t.code AND p.date < t.date)",
+        "SELECT DISTINCT first_date, market FROM ("
+        "  SELECT min(date) AS first_date, arg_min(market, date) AS market FROM raw_daily GROUP BY code"
+        ") WHERE first_date BETWEEN ? AND ?",
         [start, end],
     ).fetchall():
         if (BASE_INFO_SERVICES[market], d) not in done:
